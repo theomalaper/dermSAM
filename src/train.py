@@ -304,7 +304,7 @@ def main() -> None:
 
     # --- Scheduler ---
     if args.scheduler == "plateau":
-        scheduler = ReduceLROnPlateau(optimizer, mode="max", patience=5, factor=0.5, verbose=True)
+        scheduler = ReduceLROnPlateau(optimizer, mode="max", patience=5, factor=0.5)
     else:
         scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
