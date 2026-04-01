@@ -7,12 +7,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
+import numpy as np
 from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 
 from src.dataset import get_train_transforms, get_val_transforms, make_loader
 from src.models.localizer import LesionLocalizer, mask_to_bbox
 from src.models.medsam_finetune import MedSAMFinetune
+from src.models.sam_inference import gt_bbox_prompt
 from src.models.unet_baseline import UNetBaseline
 from src.utils import dice_coefficient, load_checkpoint, save_checkpoint, set_seed
 
@@ -148,21 +150,27 @@ def train_epoch_medsam(
         images_np = batch["image"]  # list of (H, W, 3) uint8
         masks_np = batch["mask"]    # list of (H, W) float32
 
+        def _to_numpy(x):
+            return x.numpy() if isinstance(x, torch.Tensor) else x
+
         images = torch.stack([
-            torch.from_numpy(img.astype("float32") / 255.0).permute(2, 0, 1)
+            torch.from_numpy(_to_numpy(img).astype("float32") / 255.0).permute(2, 0, 1)
+            if _to_numpy(img).ndim == 3
+            else torch.from_numpy(_to_numpy(img).astype("float32") / 255.0)
             for img in images_np
         ]).to(device)
 
         masks = torch.stack([
-            torch.from_numpy(m).unsqueeze(0) for m in masks_np
+            torch.from_numpy(_to_numpy(m)).unsqueeze(0) if not isinstance(m, torch.Tensor)
+            else m.unsqueeze(0) if m.ndim == 2 else m
+            for m in masks_np
         ]).to(device)
 
         # Derive GT bbox for prompt (UNREALISTIC — training only, GT available)
-        from src.models.sam_inference import gt_bbox_prompt
         gt_bboxes = []
         for m in masks_np:
-            import numpy as np
-            bbox = gt_bbox_prompt((m > 0.5).astype("uint8"), padding=10)
+            m_np = _to_numpy(m)
+            bbox = gt_bbox_prompt((m_np > 0.5).astype("uint8"), padding=10)
             gt_bboxes.append(torch.from_numpy(bbox))
         bbox_tensor = torch.stack(gt_bboxes).to(device)
 
