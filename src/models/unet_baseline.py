@@ -6,7 +6,7 @@ from typing import Optional
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 
 class UNetBaseline(nn.Module):
@@ -74,6 +74,6 @@ class UNetBaseline(nn.Module):
             Binary mask tensor, shape (B, 1, H, W), values in {0, 1}.
         """
         self.eval()
-        with autocast(enabled=torch.cuda.is_available()):
+        with autocast("cuda", enabled=torch.cuda.is_available()):
             logits = self.forward(x)
         return (torch.sigmoid(logits) > threshold).float()

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 
 
 def set_seed(seed: int = 42) -> None:
@@ -32,7 +32,7 @@ def make_scaler(enabled: bool = True) -> GradScaler:
     Returns:
         GradScaler instance.
     """
-    return GradScaler(enabled=enabled)
+    return GradScaler("cuda", enabled=enabled)
 
 
 def dice_coefficient(pred: torch.Tensor, target: torch.Tensor, threshold: float = 0.5, eps: float = 1e-6) -> float:

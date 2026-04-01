@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 
 from src.dataset import get_train_transforms, get_val_transforms, make_loader
@@ -50,7 +50,7 @@ def train_epoch_unet(
         images = batch["image"].to(device)
         masks = batch["mask"].to(device)
 
-        with autocast(enabled=scaler.is_enabled()):
+        with autocast("cuda", enabled=scaler.is_enabled()):
             logits = model(images)
             loss = model.compute_loss(logits, masks) / accum_steps
 
@@ -98,7 +98,7 @@ def train_epoch_localizer(
         # Derive GT bbox from mask (normalised to [0, 1])
         gt_bboxes = torch.stack([mask_to_bbox(m, image_size=image_size) for m in masks]).to(device)
 
-        with autocast(enabled=scaler.is_enabled()):
+        with autocast("cuda", enabled=scaler.is_enabled()):
             pred_bboxes = model(images)
             loss = model.compute_loss(pred_bboxes, gt_bboxes)
 
@@ -169,7 +169,7 @@ def train_epoch_medsam(
         # Resize GT masks to 256x256 for loss (SAM decoder output size)
         masks_256 = F.interpolate(masks, size=(256, 256), mode="nearest")
 
-        with autocast(enabled=scaler.is_enabled()):
+        with autocast("cuda", enabled=scaler.is_enabled()):
             logits = model(images, bbox_tensor)
             loss = model.compute_loss(logits, masks_256) / accum_steps
 
@@ -217,7 +217,7 @@ def validate(model, loader, device: str, model_type: str = "unet") -> float:
         images = batch["image"].to(device)
         masks = batch["mask"]
 
-        with autocast(enabled=torch.cuda.is_available()):
+        with autocast("cuda", enabled=torch.cuda.is_available()):
             if model_type == "unet":
                 logits = model(images)
                 preds = torch.sigmoid(logits).cpu()
@@ -309,7 +309,7 @@ def main() -> None:
         scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # --- AMP ---
-    scaler = GradScaler(enabled=args.amp and torch.cuda.is_available())
+    scaler = GradScaler("cuda", enabled=args.amp and torch.cuda.is_available())
 
     # --- Resume ---
     start_epoch = 0
