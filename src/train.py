@@ -304,7 +304,8 @@ def main() -> None:
 
     # --- Scheduler ---
     if args.scheduler == "plateau":
-        scheduler = ReduceLROnPlateau(optimizer, mode="max", patience=5, factor=0.5)
+        plateau_mode = "min" if args.model == "localizer" else "max"
+        scheduler = ReduceLROnPlateau(optimizer, mode=plateau_mode, patience=5, factor=0.5)
     else:
         scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
@@ -338,7 +339,7 @@ def main() -> None:
         val_dice = validate(model, val_loader, device, model_type=args.model)
 
         if args.scheduler == "plateau":
-            scheduler.step(val_dice)
+            scheduler.step(train_loss if args.model == "localizer" else val_dice)
         else:
             scheduler.step()
 
@@ -347,17 +348,30 @@ def main() -> None:
         print(f"Epoch {epoch+1}/{args.epochs} | loss {train_loss:.4f} | val_dice {val_dice:.4f}")
 
         # --- Checkpoint ---
-        ckpt_name = f"{args.model}_lr{args.lr}_ep{epoch+1}_dice{val_dice:.4f}.pth"
-        if val_dice > best_val_dice:
-            best_val_dice = val_dice
-            patience_counter = 0
-            save_checkpoint(
-                args.checkpoints_dir / f"best_{args.model}.pth",
-                model, optimizer, scheduler, epoch + 1, best_val_dice,
-            )
-            print(f"  New best: {best_val_dice:.4f} — saved best_{args.model}.pth")
+        # Localizer uses loss (lower=better); others use val_dice (higher=better)
+        if args.model == "localizer":
+            is_best = train_loss < -best_val_dice  # store negative loss in best_val_dice slot
+            if epoch == 0 or train_loss < getattr(main, "_best_localizer_loss", float("inf")):
+                main._best_localizer_loss = train_loss
+                patience_counter = 0
+                save_checkpoint(
+                    args.checkpoints_dir / f"best_{args.model}.pth",
+                    model, optimizer, scheduler, epoch + 1, train_loss,
+                )
+                print(f"  New best loss: {train_loss:.4f} — saved best_{args.model}.pth")
+            else:
+                patience_counter += 1
         else:
-            patience_counter += 1
+            if val_dice > best_val_dice:
+                best_val_dice = val_dice
+                patience_counter = 0
+                save_checkpoint(
+                    args.checkpoints_dir / f"best_{args.model}.pth",
+                    model, optimizer, scheduler, epoch + 1, best_val_dice,
+                )
+                print(f"  New best: {best_val_dice:.4f} — saved best_{args.model}.pth")
+            else:
+                patience_counter += 1
 
         # Also save latest
         save_checkpoint(
