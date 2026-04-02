@@ -47,3 +47,6 @@ outputs/metrics/*.csv
 # Un-ignore intentional committed outputs
 !outputs/figures/.gitkeep
 !outputs/metrics/.gitkeep
+
+# App examples — small selection of demo images, always committed
+!app/examples/

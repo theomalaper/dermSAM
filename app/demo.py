@@ -118,6 +118,10 @@ def build_interface() -> gr.Blocks:
     Returns:
         gr.Blocks application.
     """
+    examples_dir = Path(__file__).parent / "examples"
+    example_images = sorted(examples_dir.glob("*.jpg")) + sorted(examples_dir.glob("*.png"))
+    examples = [[str(img)] for img in example_images] if example_images else None
+
     with gr.Blocks(title="DermSAM — Automatic Lesion Segmentation") as demo:
         gr.Markdown("""
         # DermSAM — Automatic Melanoma Segmentation
@@ -138,6 +142,13 @@ def build_interface() -> gr.Blocks:
                 bbox_output = gr.Image(label="Auto-generated bbox (localizer output)")
 
         run_btn.click(fn=segment_image, inputs=[input_image], outputs=[seg_output, bbox_output])
+
+        if examples:
+            gr.Examples(
+                examples=examples,
+                inputs=[input_image],
+                label="Example dermoscopy images — click to load",
+            )
 
         gr.Markdown("""
         ---
