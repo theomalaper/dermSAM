@@ -170,7 +170,8 @@ def plot_qualitative_grid(
     for col, title in enumerate(col_titles):
         axes[0, col].set_title(title, fontsize=9, fontweight="bold")
 
-    sample_indices = list(range(0, min(len(ds_unet), n_rows * 5), max(1, len(ds_unet) // n_rows)))[:n_rows]
+    step = max(1, len(ds_unet) // n_rows)
+    sample_indices = list(range(0, len(ds_unet), step))[:n_rows]
 
     for row, idx in enumerate(sample_indices):
         s_unet = ds_unet[idx]

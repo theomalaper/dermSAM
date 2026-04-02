@@ -41,12 +41,9 @@ venv/
 .vscode/
 .idea/
 
-# Outputs — figures and CSVs are committed; raw large files are not
-outputs/figures/*.png
-outputs/metrics/*.csv
-# Un-ignore intentional committed outputs
-!outputs/figures/.gitkeep
-!outputs/metrics/.gitkeep
+# Outputs — figures and CSVs are committed
+!outputs/figures/
+!outputs/metrics/
 
 # App examples — small selection of demo images, always committed
 !app/examples/
