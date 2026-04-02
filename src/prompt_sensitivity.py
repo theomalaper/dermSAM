@@ -129,10 +129,12 @@ def run_sensitivity(
             dice_coefficient(torch.from_numpy(pred.astype(np.float32)), torch.from_numpy(mask_np))
         )
     auto_dice_mean = np.mean(auto_dice_scores)
+    auto_row = {"offset": "auto", "dice_mean": auto_dice_mean, "dice_std": np.std(auto_dice_scores)}
+    df_out = pd.concat([df, pd.DataFrame([auto_row])], ignore_index=True)
 
     # --- Save CSV ---
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_csv, index=False)
+    df_out.to_csv(output_csv, index=False)
 
     # --- Plot degradation curve ---
     fig, ax = plt.subplots(figsize=(8, 5))
