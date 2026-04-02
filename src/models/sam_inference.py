@@ -27,10 +27,12 @@ def _load_sam_predictor(checkpoint: Path, model_type: str = "vit_h"):
     """
     from segment_anything import SamPredictor, sam_model_registry
 
-    sam = sam_model_registry[model_type](checkpoint=str(checkpoint))
+    sam = sam_model_registry[model_type](checkpoint=None)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    state_dict = torch.load(str(checkpoint), map_location=device)
+    sam.load_state_dict(state_dict)
     sam.eval()
-    if torch.cuda.is_available():
-        sam.to("cuda")
+    sam.to(device)
     return SamPredictor(sam)
 
 
@@ -47,10 +49,12 @@ def _load_medsam_predictor(checkpoint: Path):
     """
     from segment_anything import SamPredictor, sam_model_registry
 
-    medsam = sam_model_registry["vit_b"](checkpoint=str(checkpoint))
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    medsam = sam_model_registry["vit_b"](checkpoint=None)
+    state_dict = torch.load(str(checkpoint), map_location=device)
+    medsam.load_state_dict(state_dict)
     medsam.eval()
-    if torch.cuda.is_available():
-        medsam.to("cuda")
+    medsam.to(device)
     return SamPredictor(medsam)
 
 
