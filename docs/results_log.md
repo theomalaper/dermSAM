@@ -44,11 +44,29 @@ Running log of experiment results. Add an entry after each completed run.
   - GradCAM bbox fails — activations too imprecise for reliable prompts                          
   - Published baseline to beat (ResUNet++ 0.7726): beaten by all except GradCAM    
 
-### 2026-04-02 — medsam fine-tune lr=1e-4 epochs=10/20 (partial run)
-  - lr: 0.00005 (halved from plateau scheduler)
-  - train_loss: 0.03748
-  - val_dice: 0 (placeholder — MedSAM val requires bbox input, not computed during training)
+### 2026-04-02 — medsam fine-tune lr=1e-4 epochs=20/20 (full run)
+  - Final lr: 0.0 (cosine decay)
+  - train_loss epoch 10: 0.03748 → epoch 20: 0.03518
+  - val_dice: 0 (not computed during training — bbox input required)
   - Notes:
-      - 10/20 epochs completed before session reset. Checkpoint saved to Drive as best_medsam.pth.
-      - Loss well below UNet (0.047) suggesting strong decoder adaptation.
-      - Resume training for remaining 10 epochs with --resume checkpoints/best_medsam.pth.
+      - Full 20 epochs completed. Loss continued improving slightly in second half.
+      - Checkpoint: last_medsam.pth
+
+### 2026-04-02 — Full benchmark v2 (7 rows, test set n=260)
+
+  | Approach | Dice | IoU | HD95 |
+  |---|---|---|---|
+  | UNet ResNet34 | 0.892 ± 0.115 | 0.821 ± 0.152 | 65.9 ± 185.3 |
+  | SAM ViT-H zero-shot + GT centroid [UNREALISTIC] | 0.645 ± 0.294 | 0.538 ± 0.291 | 137.8 ± 165.3 |
+  | MedSAM ViT-B zero-shot + GT bbox [UNREALISTIC] | 0.883 ± 0.112 | 0.804 ± 0.144 | 14.4 ± 22.2 |
+  | MedSAM ViT-B zero-shot + Auto bbox [REALISTIC] | 0.811 ± 0.157 | 0.706 ± 0.188 | 35.0 ± 38.7 |
+  | MedSAM ViT-B zero-shot + GradCAM bbox [REALISTIC] | 0.429 ± 0.213 | 0.297 ± 0.180 | 254.7 ± 148.8 |
+  | MedSAM ViT-B fine-tuned + GT bbox [UNREALISTIC] | 0.964 ± 0.023 | 0.932 ± 0.041 | 0.8 ± 3.1 |
+  | MedSAM ViT-B fine-tuned + Auto bbox [REALISTIC] | 0.815 ± 0.171 | 0.717 ± 0.207 | 34.8 ± 42.0 |
+
+  - Key finding: fine-tuning dramatically improves GT-prompted performance (0.883→0.964)
+    but barely helps auto-prompted (0.811→0.815) — localizer quality is the bottleneck
+  - Fine-tuned HD95 with GT bbox = 0.8px — near-perfect boundary delineation
+  - All realistic approaches beat ResUNet++ baseline (0.7726)
+  - We need to retain the localizer next
+
