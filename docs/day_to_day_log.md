@@ -24,3 +24,25 @@
   ResUNet++ baseline of 0.7726. Training overnight.
 
   Tomorrow: the lesion localizer.
+
+
+ ## Day 2 Summary                                         
+                                         
+  Retrained the EfficientNet-B0 lesion localizer after  
+  fixing infrastructure issues from yesterday (nested   
+  repo, incomplete unzip, bad checkpoint). Clean run    
+  this time:                                          
+                       
+  - Trained 20 epochs, final train loss: 0.0010         
+  - Val bbox IoU: 0.693 ± 0.201
+  - Boxes look visually reasonable — roughly covering   
+  the lesion in most cases                              
+  - Below the 0.75 IoU target but acceptable; will
+  assess downstream impact in the full benchmark        
+                                                      
+  Key debug lessons: always verify images load with cv2 
+  before training, always save checkpoints directly to
+  Drive, always verify symlinks resolve correctly before
+   starting a run.                                    
+                       
+  MedSAM fine-tuning kicked off overnight.

@@ -1,11 +1,13 @@
-"""Full benchmark: evaluate all 5 approaches on the test set and write results CSV."""
+"""Full benchmark: evaluate all 7 approaches on the test set and write results CSV."""
 
 import argparse
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.cuda.amp import autocast
 
 from src.dataset import ISICDataset, get_val_transforms
@@ -32,6 +34,44 @@ from src.utils import (
 )
 
 
+def _infer_finetuned_medsam(
+    model: MedSAMFinetune,
+    image_rgb_np: np.ndarray,
+    bbox_np: np.ndarray,
+    device: str,
+    image_size: int = 1024,
+) -> np.ndarray:
+    """Run a single inference pass with the fine-tuned MedSAM model.
+
+    Args:
+        model: MedSAMFinetune model (eval mode, on device).
+        image_rgb_np: uint8 numpy array, shape (H, W, 3).
+        bbox_np: Bbox in pixel coords [x0, y0, x1, y1], shape (4,).
+        device: Device string.
+        image_size: Expected spatial size (must match model's 1024).
+
+    Returns:
+        Binary mask as float32 numpy array, shape (image_size, image_size).
+    """
+    img_t = (
+        torch.from_numpy(image_rgb_np.astype("float32") / 255.0)
+        .permute(2, 0, 1)
+        .unsqueeze(0)
+        .to(device)
+    )
+    box_t = torch.from_numpy(bbox_np.astype("float32")).unsqueeze(0).to(device)
+    with torch.no_grad(), autocast(enabled=torch.cuda.is_available()):
+        logit = model(img_t, box_t)  # (1, 1, 256, 256)
+    pred = torch.sigmoid(logit.cpu()).squeeze()  # (256, 256)
+    pred_up = F.interpolate(
+        pred.unsqueeze(0).unsqueeze(0),
+        size=(image_size, image_size),
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze()
+    return (pred_up > 0.5).float().numpy()
+
+
 def run_benchmark(
     test_csv: Path,
     unet_ckpt: Path,
@@ -39,18 +79,21 @@ def run_benchmark(
     medsam_ckpt: Path,
     sam_ckpt: Path,
     output_csv: Path,
+    finetuned_medsam_ckpt: Optional[Path] = None,
     image_size_unet: int = 512,
     image_size_sam: int = 1024,
     device: str = "cuda",
 ) -> pd.DataFrame:
-    """Evaluate all 5 approaches on the test set.
+    """Evaluate all approaches on the test set.
 
     Approaches:
       1. UNet ResNet34 — supervised baseline
-      2. SAM ViT-H zero-shot + GT centroid prompt  [UNREALISTIC upper bound]
-      3. MedSAM ViT-B zero-shot + GT bbox prompt   [UNREALISTIC upper bound]
-      4. MedSAM ViT-B + auto bbox (from localizer) [REALISTIC/DEPLOYABLE]
-      5. MedSAM ViT-B + GradCAM bbox               [REALISTIC]
+      2. SAM ViT-H zero-shot + GT centroid prompt         [UNREALISTIC]
+      3. MedSAM ViT-B zero-shot + GT bbox prompt          [UNREALISTIC]
+      4. MedSAM ViT-B zero-shot + auto bbox               [REALISTIC]
+      5. MedSAM ViT-B zero-shot + GradCAM bbox            [REALISTIC]
+      6. MedSAM ViT-B fine-tuned + GT bbox prompt         [UNREALISTIC] (if ckpt provided)
+      7. MedSAM ViT-B fine-tuned + auto bbox              [REALISTIC]   (if ckpt provided)
 
     Args:
         test_csv: Path to test split CSV.
@@ -59,6 +102,7 @@ def run_benchmark(
         medsam_ckpt: Path to medsam_vit_b.pth weights.
         sam_ckpt: Path to sam_vit_h_4b8939.pth weights.
         output_csv: Path to write benchmark results CSV.
+        finetuned_medsam_ckpt: Path to best_medsam.pth (fine-tuned). If None, rows 6/7 skipped.
         image_size_unet: Resize for UNet inference.
         image_size_sam: Resize for SAM/MedSAM inference.
         device: Device string.
@@ -80,9 +124,15 @@ def run_benchmark(
     medsam_predictor = _load_medsam_predictor(medsam_ckpt)
     sam_predictor = _load_sam_predictor(sam_ckpt, model_type="vit_h")
 
-    # Finetuned MedSAM (row 4/5 inference uses raw predictor, not finetuned model)
-    # Row 4 and 5 use the zero-shot MedSAM predictor with auto prompts
-    # The finetuned model is evaluated separately if desired
+    # Fine-tuned MedSAM (optional — rows 6 & 7)
+    finetuned_medsam = None
+    if finetuned_medsam_ckpt is not None and finetuned_medsam_ckpt.exists():
+        finetuned_medsam = MedSAMFinetune(medsam_ckpt).to(device)
+        load_checkpoint(finetuned_medsam_ckpt, finetuned_medsam, device=device)
+        finetuned_medsam.eval()
+        print(f"Loaded fine-tuned MedSAM from {finetuned_medsam_ckpt}")
+    else:
+        print("No fine-tuned MedSAM checkpoint provided — skipping rows 6 & 7")
 
     # --- Datasets ---
     ds_unet = ISICDataset(test_csv, get_val_transforms(image_size_unet), sam_mode=False, image_size=image_size_unet)
@@ -90,7 +140,8 @@ def run_benchmark(
     ds_localizer = ISICDataset(test_csv, get_val_transforms(image_size_unet), sam_mode=False, image_size=image_size_unet)
 
     rows = {name: {"dice": [], "iou": [], "hd95": []} for name in [
-        "unet", "sam_gt_centroid", "medsam_gt_bbox", "medsam_auto_bbox", "medsam_gradcam_bbox"
+        "unet", "sam_gt_centroid", "medsam_gt_bbox", "medsam_auto_bbox", "medsam_gradcam_bbox",
+        "medsam_ft_gt_bbox", "medsam_ft_auto_bbox",
     ]}
     localizer_bbox_ious = []
 
@@ -166,17 +217,41 @@ def run_benchmark(
         rows["medsam_gradcam_bbox"]["iou"].append(iou_score(pred_t, mask_t))
         rows["medsam_gradcam_bbox"]["hd95"].append(hausdorff95(pred_t, mask_t))
 
+        # ---------- 6 & 7. Fine-tuned MedSAM [UNREALISTIC + REALISTIC] ----------
+        if finetuned_medsam is not None:
+            # 6. Fine-tuned + GT bbox [UNREALISTIC]
+            pred_ft_gt = _infer_finetuned_medsam(
+                finetuned_medsam, image_rgb, gt_box, device, image_size=image_size_sam
+            )
+            pred_t = torch.from_numpy(pred_ft_gt)
+            rows["medsam_ft_gt_bbox"]["dice"].append(dice_coefficient(pred_t, mask_t))
+            rows["medsam_ft_gt_bbox"]["iou"].append(iou_score(pred_t, mask_t))
+            rows["medsam_ft_gt_bbox"]["hd95"].append(hausdorff95(pred_t, mask_t))
+
+            # 7. Fine-tuned + auto bbox [REALISTIC]
+            pred_ft_auto = _infer_finetuned_medsam(
+                finetuned_medsam, image_rgb, auto_box_sam, device, image_size=image_size_sam
+            )
+            pred_t = torch.from_numpy(pred_ft_auto)
+            rows["medsam_ft_auto_bbox"]["dice"].append(dice_coefficient(pred_t, mask_t))
+            rows["medsam_ft_auto_bbox"]["iou"].append(iou_score(pred_t, mask_t))
+            rows["medsam_ft_auto_bbox"]["hd95"].append(hausdorff95(pred_t, mask_t))
+
     # --- Aggregate ---
     labels = {
         "unet": "UNet ResNet34",
-        "sam_gt_centroid": "SAM ViT-H + GT centroid [UNREALISTIC]",
-        "medsam_gt_bbox": "MedSAM ViT-B + GT bbox [UNREALISTIC]",
-        "medsam_auto_bbox": "MedSAM ViT-B + Auto bbox [REALISTIC]",
-        "medsam_gradcam_bbox": "MedSAM ViT-B + GradCAM bbox [REALISTIC]",
+        "sam_gt_centroid": "SAM ViT-H zero-shot + GT centroid [UNREALISTIC]",
+        "medsam_gt_bbox": "MedSAM ViT-B zero-shot + GT bbox [UNREALISTIC]",
+        "medsam_auto_bbox": "MedSAM ViT-B zero-shot + Auto bbox [REALISTIC]",
+        "medsam_gradcam_bbox": "MedSAM ViT-B zero-shot + GradCAM bbox [REALISTIC]",
+        "medsam_ft_gt_bbox": "MedSAM ViT-B fine-tuned + GT bbox [UNREALISTIC]",
+        "medsam_ft_auto_bbox": "MedSAM ViT-B fine-tuned + Auto bbox [REALISTIC]",
     }
     results = []
     for key, label in labels.items():
         d = rows[key]
+        if not d["dice"]:  # fine-tuned rows skipped if no checkpoint
+            continue
         results.append({
             "Approach": label,
             "Dice mean": np.mean(d["dice"]),
@@ -203,6 +278,7 @@ def main() -> None:
     p.add_argument("--localizer-ckpt", type=Path, default=Path("checkpoints/best_localizer.pth"))
     p.add_argument("--medsam-ckpt", type=Path, default=Path("checkpoints/medsam_vit_b.pth"))
     p.add_argument("--sam-ckpt", type=Path, default=Path("checkpoints/sam_vit_h_4b8939.pth"))
+    p.add_argument("--finetuned-medsam-ckpt", type=Path, default=Path("checkpoints/best_medsam.pth"))
     p.add_argument("--output", type=Path, default=Path("outputs/metrics/benchmark.csv"))
     p.add_argument("--all", action="store_true", default=True)
     args = p.parse_args()
@@ -215,6 +291,7 @@ def main() -> None:
         medsam_ckpt=args.medsam_ckpt,
         sam_ckpt=args.sam_ckpt,
         output_csv=args.output,
+        finetuned_medsam_ckpt=args.finetuned_medsam_ckpt,
         device=device,
     )
 
