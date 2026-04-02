@@ -2,6 +2,34 @@
 
 Running log of experiment results. Add an entry after each completed run.
 
+---
+
+## 2026-04-02 — Project Complete
+
+### What was built
+DermSAM is a two-stage automatic pipeline for skin lesion segmentation that addresses the deployment gap in published SAM benchmarks. Stage 1: EfficientNet-B0 localizer predicts a bounding box from the image alone (no ground truth). Stage 2: MedSAM uses that box as a prompt to segment the lesion. The full pipeline requires no clicks, no annotations, and no ground truth at inference time.
+
+### The core finding
+Published SAM benchmarks report performance using ground-truth-derived prompts — information unavailable in clinical deployment. This project quantifies that gap and shows a lightweight localizer can partially close it.
+
+Fine-tuning MedSAM on ISIC data dramatically improves performance when given a perfect GT prompt (0.883 → 0.964 Dice) but barely helps with a realistic auto-prompt (0.811 → 0.815). This means the localizer quality — not the segmentation model — is the binding constraint for real-world deployment. Improving the localizer is the clearest path to better pipeline performance.
+
+GradCAM activations from the localizer proved insufficient as prompts (Dice 0.429) — the heatmaps are too diffuse. A dedicated bbox regression head is necessary.
+
+### Prompt sensitivity
+MedSAM is robust to moderate bbox imprecision (up to ~25px expansion) but degrades sharply beyond 50px. The auto-prompt sits at roughly 35-40px equivalent imprecision relative to GT — interpretable and improvable.
+
+### What's live
+- Demo: huggingface.co/spaces/Malaper/dermSAM
+- Code: github.com/theomalaper/dermSAM
+- All results, figures, and CSVs committed to repo
+
+### Potential next experiments
+- Retrain localizer with EfficientNet-B3 or longer schedule — biggest expected impact
+- Test generalisation on PH2 or ISIC 2016 without retraining
+- Compare against SAM2/MedSAM2
+- Report sensitivity/specificity for clinical framing
+
 ## Format
 ```
 ### YYYY-MM-DD — [model] lr=[lr] epochs=[N]

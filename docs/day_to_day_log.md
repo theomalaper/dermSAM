@@ -46,3 +46,33 @@
    starting a run.                                    
                        
   MedSAM fine-tuning kicked off overnight.
+
+
+## Day 3 — Benchmark, Figures, Demo
+
+MedSAM fine-tuning completed — 20 epochs, final train loss 0.035. Then ran the full
+7-row benchmark on the test set (n=260). The headline numbers:
+
+  - UNet ResNet34:                       Dice 0.892
+  - MedSAM zero-shot + GT bbox [UNREAL]: Dice 0.883
+  - MedSAM zero-shot + Auto bbox [REAL]: Dice 0.811
+  - MedSAM fine-tuned + GT bbox [UNREAL]:Dice 0.964
+  - MedSAM fine-tuned + Auto bbox [REAL]:Dice 0.815
+  - GradCAM bbox [REAL]:                 Dice 0.429
+
+The most interesting finding: fine-tuning dramatically improves performance when given
+a perfect GT prompt (0.883 → 0.964) but barely helps with a realistic auto-prompt
+(0.811 → 0.815). The localizer — not the segmentation model — is the binding
+constraint for real-world performance. Improving the localizer is the clearest next
+step.
+
+The prompt sensitivity curve showed MedSAM is robust to moderate imprecision (up to
+~25px) but degrades sharply beyond 50px. The auto-prompt sits at roughly 35-40px
+equivalent imprecision — interpretable and improvable.
+
+All four portfolio figures generated. README written. Results notebook written.
+Gradio demo deployed to HuggingFace Spaces (huggingface.co/spaces/Malaper/dermSAM) —
+upload an image, get a segmentation back, no clicking required.
+
+Project is complete as a portfolio piece. Next experiments if time allows: stronger
+localizer, second dataset for generalisation testing.
