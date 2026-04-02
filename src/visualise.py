@@ -158,8 +158,15 @@ def plot_qualitative_grid(
     ds_unet = ISICDataset(test_csv, get_val_transforms(512), sam_mode=False, image_size=512)
     ds_sam = ISICDataset(test_csv, get_val_transforms(1024, sam_mode=True), sam_mode=True, image_size=1024)
 
-    fig, axes = plt.subplots(n_rows, 5, figsize=(15, n_rows * 3))
-    col_titles = ["Image", "GT Mask", "UNet", "MedSAM + GT bbox\n[UNREALISTIC]", "MedSAM + Auto bbox\n[REALISTIC]"]
+    fig, axes = plt.subplots(n_rows, 6, figsize=(18, n_rows * 3))
+    col_titles = [
+        "Image + Auto bbox\n(localizer output)",
+        "GT Mask",
+        "UNet",
+        "MedSAM + GT bbox\n[UNREALISTIC]",
+        "MedSAM + Auto bbox\n[REALISTIC]",
+        "MedSAM + GradCAM bbox\n[REALISTIC]",
+    ]
     for col, title in enumerate(col_titles):
         axes[0, col].set_title(title, fontsize=9, fontweight="bold")
 
@@ -185,28 +192,77 @@ def plot_qualitative_grid(
         pred_unet = (torch.sigmoid(logit.cpu()) > 0.5).float().squeeze().numpy()
 
         # MedSAM + GT bbox
+        img_tensor = s_unet["image"].unsqueeze(0).to(device)
         gt_box = gt_bbox_prompt((mask_sam_np > 0.5).astype(np.uint8), padding=10)
         pred_gt = predict_with_bbox_prompt(medsam, s_sam["image"], gt_box)
 
         # MedSAM + Auto bbox
-        img_tensor = s_unet["image"].unsqueeze(0).to(device)
         auto_box = auto_bbox_prompt(localizer, img_tensor, image_size=512)
         auto_box_sam = (auto_box * 2.0).astype(np.float32)  # 512 -> 1024
         pred_auto = predict_with_bbox_prompt(medsam, s_sam["image"], auto_box_sam)
 
-        # Dice scores for titles
+        # MedSAM + GradCAM bbox
+        gradcam_box = get_gradcam_bbox(localizer, img_tensor, image_size=512)
+        gradcam_box_sam = (gradcam_box * 2.0).astype(np.float32)  # 512 -> 1024
+        pred_gradcam = predict_with_bbox_prompt(medsam, s_sam["image"], gradcam_box_sam)
+
+        # Dice scores
         d_unet = dice_coefficient(torch.from_numpy(pred_unet), torch.from_numpy(mask_np))
         d_gt = dice_coefficient(torch.from_numpy(pred_gt.astype(np.float32)), torch.from_numpy(mask_sam_np))
         d_auto = dice_coefficient(torch.from_numpy(pred_auto.astype(np.float32)), torch.from_numpy(mask_sam_np))
+        d_gradcam = dice_coefficient(torch.from_numpy(pred_gradcam.astype(np.float32)), torch.from_numpy(mask_sam_np))
 
-        preds = [img_display, mask_np, pred_unet, pred_gt, pred_auto]
-        dice_vals = [None, None, d_unet, d_gt, d_auto]
+        # Scale boxes from 1024/512 to 512 for display on img_display
+        gt_box_512 = (gt_box / 2.0).astype(int)
+        auto_box_512 = auto_box.astype(int)
+        gradcam_box_512 = gradcam_box.astype(int)
 
-        for col, (pred, d) in enumerate(zip(preds, dice_vals)):
-            axes[row, col].imshow(pred, cmap="gray" if pred.ndim == 2 else None)
-            axes[row, col].axis("off")
-            if d is not None:
-                axes[row, col].set_xlabel(f"Dice={d:.3f}", fontsize=8)
+        # Col 0: image + auto bbox (yellow)
+        axes[row, 0].imshow(img_display)
+        x0, y0, x1, y1 = auto_box_512
+        axes[row, 0].add_patch(mpatches.Rectangle(
+            (x0, y0), x1 - x0, y1 - y0, linewidth=2, edgecolor="yellow", facecolor="none"
+        ))
+        axes[row, 0].axis("off")
+
+        # Col 1: GT mask
+        axes[row, 1].imshow(mask_np, cmap="gray")
+        axes[row, 1].axis("off")
+
+        # Col 2: UNet prediction
+        axes[row, 2].imshow(pred_unet, cmap="gray")
+        axes[row, 2].set_xlabel(f"Dice={d_unet:.3f}", fontsize=8)
+        axes[row, 2].axis("off")
+
+        # Col 3: image + GT bbox (green) + segmentation overlay
+        axes[row, 3].imshow(img_display)
+        axes[row, 3].imshow(pred_gt, cmap="Reds", alpha=0.4)
+        x0, y0, x1, y1 = gt_box_512
+        axes[row, 3].add_patch(mpatches.Rectangle(
+            (x0, y0), x1 - x0, y1 - y0, linewidth=2, edgecolor="lime", facecolor="none"
+        ))
+        axes[row, 3].set_xlabel(f"Dice={d_gt:.3f}", fontsize=8)
+        axes[row, 3].axis("off")
+
+        # Col 4: image + auto bbox (yellow) + segmentation overlay
+        axes[row, 4].imshow(img_display)
+        axes[row, 4].imshow(pred_auto, cmap="Reds", alpha=0.4)
+        x0, y0, x1, y1 = auto_box_512
+        axes[row, 4].add_patch(mpatches.Rectangle(
+            (x0, y0), x1 - x0, y1 - y0, linewidth=2, edgecolor="yellow", facecolor="none"
+        ))
+        axes[row, 4].set_xlabel(f"Dice={d_auto:.3f}", fontsize=8)
+        axes[row, 4].axis("off")
+
+        # Col 5: image + GradCAM bbox (orange) + segmentation overlay
+        axes[row, 5].imshow(img_display)
+        axes[row, 5].imshow(pred_gradcam, cmap="Reds", alpha=0.4)
+        x0, y0, x1, y1 = gradcam_box_512
+        axes[row, 5].add_patch(mpatches.Rectangle(
+            (x0, y0), x1 - x0, y1 - y0, linewidth=2, edgecolor="orange", facecolor="none"
+        ))
+        axes[row, 5].set_xlabel(f"Dice={d_gradcam:.3f}", fontsize=8)
+        axes[row, 5].axis("off")
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
