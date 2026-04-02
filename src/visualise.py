@@ -102,13 +102,15 @@ def plot_deployment_gap(benchmark_csv: Path, output_path: Path) -> None:
     ax.set_ylabel("Dice coefficient")
     ax.set_title("Deployment Gap: GT-Prompted (Unrealistic) vs Auto-Prompted (Realistic)")
     ax.set_ylim(0, 1.05)
-    ax.axhline(0.7726, color="black", linestyle=":", alpha=0.6, label="Published baseline (ResUNet++ 0.7726)")
-    ax.legend(fontsize=9)
+    baseline_line = plt.Line2D([0], [0], color="black", linestyle=":", alpha=0.6,
+                               label="Published baseline (ResUNet++ 0.7726)")
+    ax.axhline(0.7726, color="black", linestyle=":", alpha=0.6)
 
     patches = [
         mpatches.Patch(color="#e57373", label="Unrealistic (GT prompt)"),
         mpatches.Patch(color="#66bb6a", label="Realistic (auto prompt)"),
         mpatches.Patch(color="#90caf9", label="Supervised baseline"),
+        baseline_line,
     ]
     ax.legend(handles=patches, fontsize=9)
 
